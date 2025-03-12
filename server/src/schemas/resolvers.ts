@@ -1,6 +1,6 @@
 import { User } from '../models/index.js';
+import { AuthenticationError } from 'apollo-server-errors'; // UPDATED BASED ON THE ERROR MESSAGE
 import { signToken } from '../services/auth.js';
-import { AuthenticationError } from 'graphql';
 
 interface User {
     _id: string;
@@ -39,7 +39,11 @@ const resolvers = {
             if (!context.user) {
                 throw new AuthenticationError('You must be logged in!');
             }
-            return await User.findOne({ _id: context.user._id }).populate('savedBooks') as User | null;
+
+            const user = await User.findOne({ _id: context.user._id })
+                .populate('savedBooks')
+                .lean();
+            return user ? { ...user, _id: String(user._id) } as User : null;
         }
     },
 
@@ -57,15 +61,16 @@ const resolvers = {
                 throw new AuthenticationError('Incorrect password');
             }
 
-            const token = signToken(user.username, user.email, user._id);
-            return { token, user: user.toObject() as User };
+            const token = signToken(user.username, user.email, String(user._id)); 
+            return { token, user: { ...user.toObject(), _id: String(user._id) } as User };
         },
 
         // Register new user
         addUser: async (_parent: unknown, { username, email, password }: { username: string, email: string, password: string }): Promise<{ token: string, user: User }> => {
             const user = await User.create({ username, email, password });
-            const token = signToken(user.username, user.email, user._id);
-            return { token, user: user.toObject() as User };
+
+            const token = signToken(user.username, user.email, String(user._id)); 
+            return { token, user: { ...user.toObject(), _id: String(user._id) } as User };
         },
 
         // Save book to user's savedBooks list
@@ -74,11 +79,15 @@ const resolvers = {
                 throw new AuthenticationError('You must be logged in!');
             }
 
-            return await User.findOneAndUpdate(
+            const updatedUser = await User.findOneAndUpdate(
                 { _id: context.user._id },
                 { $addToSet: { savedBooks: bookData } },
                 { new: true, runValidators: true }
-            ).populate('savedBooks');
+            )
+            .populate('savedBooks')
+            .lean(); //  Convert to plain object
+
+            return updatedUser ? { ...updatedUser, _id: String(updatedUser._id) } as User : null;
         },
 
         // Remove book from savedBooks
@@ -87,13 +96,18 @@ const resolvers = {
                 throw new AuthenticationError('You must be logged in!');
             }
 
-            return await User.findOneAndUpdate(
+            const updatedUser = await User.findOneAndUpdate(
                 { _id: context.user._id },
                 { $pull: { savedBooks: { bookId } } },
                 { new: true }
-            ).populate('savedBooks');
+            )
+            .populate('savedBooks')
+            .lean(); // Convert to plain object
+
+            return updatedUser ? { ...updatedUser, _id: String(updatedUser._id) } as User : null;
         }
     }
 };
 
 export default resolvers;
+
